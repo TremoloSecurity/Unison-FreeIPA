@@ -51,6 +51,7 @@ import com.tremolosecurity.saml.Attribute;
 import com.tremolosecurity.unison.freeipa.json.IPACall;
 import com.tremolosecurity.unison.freeipa.json.IPAResponse;
 import com.tremolosecurity.unison.freeipa.util.HttpCon;
+import com.tremolosecurity.unison.freeipa.util.IPAException;
 
 
 
@@ -273,7 +274,7 @@ public class FreeIPATarget implements UserStoreProvider{
 		
 	}
 	
-	private IPAResponse executeIPACall(IPACall ipaCall,HttpCon con) throws ProvisioningException, ClientProtocolException, IOException {
+	private IPAResponse executeIPACall(IPACall ipaCall,HttpCon con) throws IPAException, ClientProtocolException, IOException {
 		
 		Gson gson = new Gson();
 		String json = gson.toJson(ipaCall);
@@ -309,7 +310,10 @@ public class FreeIPATarget implements UserStoreProvider{
 		IPAResponse ipaResponse = gson.fromJson(b.toString(), IPAResponse.class);
 		
 		if (ipaResponse.getError() != null) {
-			throw new ProvisioningException(ipaResponse.getError().getMessage());
+			IPAException ipaException = new IPAException(ipaResponse.getError().getMessage());
+			ipaException.setCode(ipaResponse.getError().getCode());
+			ipaException.setName(ipaResponse.getError().getName());
+			throw ipaException;
 		} else {
 			return ipaResponse;
 		}
