@@ -8,3 +8,9 @@ There are three configration options:
 * userName - The user name (uid attribute) of a member of the admins group
 * password - The password of the service account used to create accounts
 * createShadowAccounts - If true, when a user is created a random password is generated so that the account is active and ready for use, but not usable with a password
+
+## Build
+This project is built using maven
+
+## Deploy
+After a build, copying `target/unison-services-freeipa-1.0.7.jar` to OpenUnison's classpath or uploading into Unison as a proxy library will make the target available.  There are no additional libraries needed.
