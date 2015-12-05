@@ -45,10 +45,13 @@ import com.tremolosecurity.config.util.ConfigManager;
 import com.tremolosecurity.provisioning.core.ProvisioningException;
 import com.tremolosecurity.provisioning.core.User;
 import com.tremolosecurity.provisioning.core.UserStoreProvider;
+import com.tremolosecurity.provisioning.core.Workflow;
+import com.tremolosecurity.provisioning.core.ProvisioningUtil.ActionType;
 import com.tremolosecurity.saml.Attribute;
 import com.tremolosecurity.unison.freeipa.json.IPACall;
 import com.tremolosecurity.unison.freeipa.json.IPAResponse;
 import com.tremolosecurity.unison.freeipa.util.HttpCon;
+
 
 
 
@@ -63,15 +66,145 @@ public class FreeIPATarget implements UserStoreProvider{
 
 	private String name;
 	
-	public void createUser(User arg0, Set<String> arg1, Map<String, Object> arg2)
+	
+	private void addGroup(String userID, String groupName,
+			HttpCon con, int approvalID, Workflow workflow) throws Exception {
+		
+		
+		IPACall addGroup = new IPACall();
+		addGroup.setId(0);
+		addGroup.setMethod("group_add_member");
+		
+		ArrayList<Object> groupAddList = new ArrayList<Object>();
+		groupAddList.add(new ArrayList<Object>());
+		((ArrayList<Object>)groupAddList.get(0)).add(groupName);
+		groupAddList.add(new HashMap<String,String>());
+		((HashMap<String,String>) groupAddList.get(1)).put("user", userID);
+		
+		addGroup.getParams().add(groupAddList);
+		
+		IPAResponse resp = this.executeIPACall(addGroup, con);
+		
+		this.cfgMgr.getProvisioningEngine().logAction(name,false, ActionType.Add,  approvalID, workflow, "group", groupName);
+		
+	}
+	
+	private void removeGroup(String userID, String groupName,
+			HttpCon con, int approvalID, Workflow workflow) throws Exception {
+		
+		IPACall removeGroup = new IPACall();
+		removeGroup.setId(0);
+		removeGroup.setMethod("group_remove_member");
+		
+		ArrayList<Object> groupAddList = new ArrayList<Object>();
+		groupAddList.add(new ArrayList<Object>());
+		((ArrayList<Object>)groupAddList.get(0)).add(groupName);
+		groupAddList.add(new HashMap<String,String>());
+		((HashMap<String,String>) groupAddList.get(1)).put("user", userID);
+		
+		removeGroup.getParams().add(groupAddList);
+		
+		IPAResponse resp = this.executeIPACall(removeGroup, con);
+		
+		this.cfgMgr.getProvisioningEngine().logAction(name,false, ActionType.Delete,  approvalID, workflow, "group", groupName);
+		
+	}
+	
+	
+	public void createUser(User user, Set<String> attributes, Map<String, Object> request)
 			throws ProvisioningException {
-		// TODO Auto-generated method stub
+		
+		int approvalID = 0;
+		if (request.containsKey("APPROVAL_ID")) {
+			approvalID = (Integer) request.get("APPROVAL_ID");
+		}
+		
+		Workflow workflow = (Workflow) request.get("WORKFLOW");
+		
+		try {
+			HttpCon con = this.createClient();
+			
+			try {
+				IPACall createUser = new IPACall();
+				createUser.setId(0);
+				createUser.setMethod("user_add");
+				
+				ArrayList<String> userArray = new ArrayList<String>();
+				userArray.add(user.getUserID());
+				createUser.getParams().add(userArray);
+				
+				HashMap<String,Object> userAttrs = new HashMap<String,Object>();
+				
+				for (String attrName : attributes) {
+					Attribute attr = user.getAttribs().get(attrName);
+					
+					if (attr != null && ! attr.getName().equalsIgnoreCase("uid")) {
+						if (attr.getValues().size() == 1) {
+							userAttrs.put(attr.getName(), attr.getValues().get(0));
+						} else {
+							ArrayList vals = new ArrayList<String>();
+							vals.addAll(attr.getValues());
+							userAttrs.put(attr.getName(), vals);
+						}
+						
+						
+					}
+				}
+				
+				createUser.getParams().add(userAttrs);
+				
+				IPAResponse resp = this.executeIPACall(createUser, con);
+				
+				this.cfgMgr.getProvisioningEngine().logAction(name,true, ActionType.Add,  approvalID, workflow, "uid", user.getUserID());
+				
+			} finally {
+				if (con != null) {
+					con.getBcm().shutdown();
+				}
+			}
+		} catch (Exception e) {
+			throw new ProvisioningException("Could not run search",e);
+		}
 		
 	}
 
-	public void deleteUser(User arg0, Map<String, Object> arg1)
+	public void deleteUser(User user, Map<String, Object> request)
 			throws ProvisioningException {
-		// TODO Auto-generated method stub
+		
+		int approvalID = 0;
+		if (request.containsKey("APPROVAL_ID")) {
+			approvalID = (Integer) request.get("APPROVAL_ID");
+		}
+		
+		Workflow workflow = (Workflow) request.get("WORKFLOW");
+		
+		try {
+			HttpCon con = this.createClient();
+			
+			try {
+				IPACall deleteUser = new IPACall();
+				deleteUser.setId(0);
+				deleteUser.setMethod("user_del");
+				
+				ArrayList<String> userArray = new ArrayList<String>();
+				userArray.add(user.getUserID());
+				deleteUser.getParams().add(userArray);
+				
+				HashMap<String,String> additionalParams = new HashMap<String,String>();
+				
+				deleteUser.getParams().add(additionalParams);
+				
+				IPAResponse resp = this.executeIPACall(deleteUser, con);
+				
+				this.cfgMgr.getProvisioningEngine().logAction(name,true, ActionType.Delete,  approvalID, workflow, "uid", user.getUserID());
+			} finally {
+				if (con != null) {
+					con.getBcm().shutdown();
+				}
+			}
+		} catch (Exception e) {
+			throw new ProvisioningException("Could not run search",e);
+		}
 		
 	}
 
@@ -98,15 +231,17 @@ public class FreeIPATarget implements UserStoreProvider{
 				
 				User user = new User();
 				user.setUserID(userID);
+				Map<String,Object> results = (Map<String,Object>) resp.getResult().getResult();
 				
 				for (String attributeName : attributes) {
-					if (resp.getResult().getResult().get(attributeName) instanceof List) {
+					
+					if (results.get(attributeName) instanceof List) {
 						Attribute a = user.getAttribs().get(attributeName);
 						if (a == null) {
 							a = new Attribute(attributeName);
 							user.getAttribs().put(attributeName, a);
 						}
-						List l = (List) resp.getResult().getResult().get(attributeName);
+						List l = (List) results.get(attributeName);
 						for (Object o : l) {
 							a.getValues().add((String) o);
 						}
@@ -116,11 +251,11 @@ public class FreeIPATarget implements UserStoreProvider{
 							a = new Attribute(attributeName);
 							user.getAttribs().put(attributeName, a);
 						}
-						a.getValues().add((String) resp.getResult().getResult().get(attributeName));
+						a.getValues().add((String) results.get(attributeName));
 					}
 				}
 				
-				for (Object o : ((List) resp.getResult().getResult().get("memberof_group"))) {
+				for (Object o : ((List) results.get("memberof_group"))) {
 					String groupName = (String) o;
 					user.getGroups().add(groupName);
 				}
@@ -174,7 +309,7 @@ public class FreeIPATarget implements UserStoreProvider{
 		IPAResponse ipaResponse = gson.fromJson(b.toString(), IPAResponse.class);
 		
 		if (ipaResponse.getError() != null) {
-			throw new ProvisioningException(ipaResponse.getError());
+			throw new ProvisioningException(ipaResponse.getError().getMessage());
 		} else {
 			return ipaResponse;
 		}
@@ -253,9 +388,68 @@ public class FreeIPATarget implements UserStoreProvider{
 		response.close();
 	}
 
-	public void setUserPassword(User arg0, Map<String, Object> arg1)
+	public void setUserPassword(User user, Map<String, Object> request)
 			throws ProvisioningException {
-		// TODO Auto-generated method stub
+		int approvalID = 0;
+		if (request.containsKey("APPROVAL_ID")) {
+			approvalID = (Integer) request.get("APPROVAL_ID");
+		}
+		
+		Workflow workflow = (Workflow) request.get("WORKFLOW");
+		
+		try {
+			HttpCon con = this.createClient();
+			
+			try {
+				IPACall setPassword = new IPACall();
+				setPassword.setId(0);
+				setPassword.setMethod("passwd");
+				
+				ArrayList<String> userArray = new ArrayList<String>();
+				userArray.add(user.getUserID());
+				setPassword.getParams().add(userArray);
+				
+				HashMap<String,String> additionalParams = new HashMap<String,String>();
+				additionalParams.put("password", user.getPassword());
+				setPassword.getParams().add(additionalParams);
+				
+				IPAResponse resp = this.executeIPACall(setPassword, con);
+				con.getBcm().shutdown();
+				
+				//no we need to reset the password, this is a hack.  right way is to tell IPA the user doesn't need to reset their password
+				HttpPost httppost = new HttpPost(this.url + "/ipa/session/change_password");
+				httppost.addHeader("Referer", this.url + "/ipa/ui/");	
+				List<NameValuePair> formparams = new ArrayList<NameValuePair>();
+				formparams.add(new BasicNameValuePair("user", user.getUserID()));
+				formparams.add(new BasicNameValuePair("old_password", user.getPassword()));
+				formparams.add(new BasicNameValuePair("new_password", user.getPassword()));
+				UrlEncodedFormEntity entity = new UrlEncodedFormEntity(formparams, "UTF-8");
+
+				
+				httppost.setEntity(entity);
+				
+				
+				
+				con = this.createClient(user.getUserID(), user.getPassword());
+				CloseableHttpClient http = con.getHttp();
+				 
+				
+				CloseableHttpResponse httpResp = http.execute(httppost);
+				
+				if (logger.isDebugEnabled()) {
+					logger.debug("Response of password reset : " + httpResp.getStatusLine().getStatusCode());
+				}
+				
+				
+				this.cfgMgr.getProvisioningEngine().logAction(name,true, ActionType.Delete,  approvalID, workflow, "uid", user.getUserID());
+			} finally {
+				if (con != null) {
+					con.getBcm().shutdown();
+				}
+			}
+		} catch (Exception e) {
+			throw new ProvisioningException("Could not run search",e);
+		}
 		
 	}
 

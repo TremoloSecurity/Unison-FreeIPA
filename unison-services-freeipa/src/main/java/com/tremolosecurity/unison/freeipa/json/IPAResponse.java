@@ -18,7 +18,7 @@ public class IPAResponse {
 	String principal;
 	String version;
 	IPATopResult result;
-	String error;
+	IPAError error;
 	
 	public IPAResponse() {
 		
@@ -64,13 +64,15 @@ public class IPAResponse {
 		this.result = result;
 	}
 
-	public String getError() {
+	public IPAError getError() {
 		return error;
 	}
 
-	public void setError(String error) {
+	public void setError(IPAError error) {
 		this.error = error;
 	}
+
+	
 	
 	
 }

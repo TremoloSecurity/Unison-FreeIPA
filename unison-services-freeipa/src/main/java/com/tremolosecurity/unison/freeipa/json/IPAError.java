@@ -12,45 +12,29 @@
  *******************************************************************************/
 package com.tremolosecurity.unison.freeipa.json;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.Map;
-
-public class IPATopResult {
-	Object result;
-	String summary;
-	Object value;
+public class IPAError {
+	int code;
+	String message;
+	String name;
 	
-	public IPATopResult() {
-		this.result = new HashMap<String,Object>();
-		this.value = new ArrayList<String>();
+	public int getCode() {
+		return code;
 	}
-
-	public Object getResult() {
-		return result;
+	public void setCode(int code) {
+		this.code = code;
 	}
-
-	public void setResult(Object result) {
-		this.result = result;
+	public String getMessage() {
+		return message;
 	}
-
-	public String getSummary() {
-		return summary;
+	public void setMessage(String message) {
+		this.message = message;
 	}
-
-	public void setSummary(String summary) {
-		this.summary = summary;
+	public String getName() {
+		return name;
 	}
-
-	public Object getValue() {
-		return value;
+	public void setName(String name) {
+		this.name = name;
 	}
-
-	public void setValue(Object value) {
-		this.value = value;
-	}
-
-	
 	
 	
 }
