@@ -18,6 +18,7 @@ import java.io.InputStreamReader;
 import java.io.UnsupportedEncodingException;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -38,6 +39,7 @@ import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClients;
 import org.apache.http.impl.conn.BasicHttpClientConnectionManager;
 import org.apache.http.message.BasicNameValuePair;
+import org.apache.http.util.EntityUtils;
 import org.apache.log4j.Logger;
 
 import com.google.gson.Gson;
@@ -75,14 +77,18 @@ public class FreeIPATarget implements UserStoreProvider{
 		IPACall addGroup = new IPACall();
 		addGroup.setId(0);
 		addGroup.setMethod("group_add_member");
+		ArrayList<String> groupNames = new ArrayList<String>();
+		groupNames.add(groupName);
 		
-		ArrayList<Object> groupAddList = new ArrayList<Object>();
-		groupAddList.add(new ArrayList<Object>());
-		((ArrayList<Object>)groupAddList.get(0)).add(groupName);
-		groupAddList.add(new HashMap<String,String>());
-		((HashMap<String,String>) groupAddList.get(1)).put("user", userID);
+		addGroup.getParams().add(groupNames);
 		
-		addGroup.getParams().add(groupAddList);
+		
+		HashMap<String,Object> nvps = new HashMap<String,Object>();
+		ArrayList<String> users = new ArrayList<String>();
+		users.add(userID);
+		nvps.put("user", users);
+		
+		addGroup.getParams().add(nvps);
 		
 		IPAResponse resp = this.executeIPACall(addGroup, con);
 		
@@ -93,19 +99,24 @@ public class FreeIPATarget implements UserStoreProvider{
 	private void removeGroup(String userID, String groupName,
 			HttpCon con, int approvalID, Workflow workflow) throws Exception {
 		
-		IPACall removeGroup = new IPACall();
-		removeGroup.setId(0);
-		removeGroup.setMethod("group_remove_member");
+		IPACall addGroup = new IPACall();
+		addGroup.setId(0);
+		addGroup.setMethod("group_remove_member");
 		
-		ArrayList<Object> groupAddList = new ArrayList<Object>();
-		groupAddList.add(new ArrayList<Object>());
-		((ArrayList<Object>)groupAddList.get(0)).add(groupName);
-		groupAddList.add(new HashMap<String,String>());
-		((HashMap<String,String>) groupAddList.get(1)).put("user", userID);
+		ArrayList<String> groupNames = new ArrayList<String>();
+		groupNames.add(groupName);
 		
-		removeGroup.getParams().add(groupAddList);
+		addGroup.getParams().add(groupNames);
 		
-		IPAResponse resp = this.executeIPACall(removeGroup, con);
+		
+		HashMap<String,Object> nvps = new HashMap<String,Object>();
+		ArrayList<String> users = new ArrayList<String>();
+		users.add(userID);
+		nvps.put("user", users);
+		
+		addGroup.getParams().add(nvps);
+		
+		IPAResponse resp = this.executeIPACall(addGroup, con);
 		
 		this.cfgMgr.getProvisioningEngine().logAction(name,false, ActionType.Delete,  approvalID, workflow, "group", groupName);
 		
@@ -157,6 +168,25 @@ public class FreeIPATarget implements UserStoreProvider{
 				IPAResponse resp = this.executeIPACall(createUser, con);
 				
 				this.cfgMgr.getProvisioningEngine().logAction(name,true, ActionType.Add,  approvalID, workflow, "uid", user.getUserID());
+				this.cfgMgr.getProvisioningEngine().logAction(name,false, ActionType.Add,  approvalID, workflow, "uid", user.getUserID());
+				
+				for (String attrName : userAttrs.keySet()) {
+					Object o = userAttrs.get(attrName);
+					if (o instanceof String) {
+						this.cfgMgr.getProvisioningEngine().logAction(name,false, ActionType.Add,  approvalID, workflow, attrName, (String) o);
+					} else {
+						List<String> vals = (List<String>) o;
+						for (String val : vals) {
+							this.cfgMgr.getProvisioningEngine().logAction(name,false, ActionType.Add,  approvalID, workflow, attrName, val);
+						}
+					}
+				}
+				
+				
+				
+				for (String group : user.getGroups()) {
+					this.addGroup(user.getUserID(), group, con, approvalID, workflow);
+				}
 				
 			} finally {
 				if (con != null) {
@@ -215,63 +245,72 @@ public class FreeIPATarget implements UserStoreProvider{
 			HttpCon con = this.createClient();
 			
 			try {
-				IPACall userSearch = new IPACall();
-				userSearch.setId(0);
-				userSearch.setMethod("user_show");
-				
-				ArrayList<String> userArray = new ArrayList<String>();
-				userArray.add(userID);
-				userSearch.getParams().add(userArray);
-				
-				HashMap<String,String> additionalParams = new HashMap<String,String>();
-				additionalParams.put("all", "true");
-				additionalParams.put("rights", "true");
-				userSearch.getParams().add(additionalParams);
-				
-				IPAResponse resp = this.executeIPACall(userSearch, con);
-				
-				User user = new User();
-				user.setUserID(userID);
-				Map<String,Object> results = (Map<String,Object>) resp.getResult().getResult();
-				
-				for (String attributeName : attributes) {
-					
-					if (results.get(attributeName) instanceof List) {
-						Attribute a = user.getAttribs().get(attributeName);
-						if (a == null) {
-							a = new Attribute(attributeName);
-							user.getAttribs().put(attributeName, a);
-						}
-						List l = (List) results.get(attributeName);
-						for (Object o : l) {
-							a.getValues().add((String) o);
-						}
-					} else {
-						Attribute a = user.getAttribs().get(attributeName);
-						if (a == null) {
-							a = new Attribute(attributeName);
-							user.getAttribs().put(attributeName, a);
-						}
-						a.getValues().add((String) results.get(attributeName));
-					}
-				}
-				
-				for (Object o : ((List) results.get("memberof_group"))) {
-					String groupName = (String) o;
-					user.getGroups().add(groupName);
-				}
-				
-				return user;
+				return findUser(userID, attributes, con);
 				
 			} finally {
 				if (con != null) {
 					con.getBcm().shutdown();
 				}
 			}
+		} catch (IPAException e) {
+			throw e;
 		} catch (Exception e) {
 			throw new ProvisioningException("Could not run search",e);
 		}
 		
+	}
+
+	private User findUser(String userID, Set<String> attributes, HttpCon con)
+			throws IPAException, ClientProtocolException, IOException {
+		IPACall userSearch = new IPACall();
+		userSearch.setId(0);
+		userSearch.setMethod("user_show");
+		
+		ArrayList<String> userArray = new ArrayList<String>();
+		userArray.add(userID);
+		userSearch.getParams().add(userArray);
+		
+		HashMap<String,String> additionalParams = new HashMap<String,String>();
+		additionalParams.put("all", "true");
+		additionalParams.put("rights", "true");
+		userSearch.getParams().add(additionalParams);
+		
+		IPAResponse resp = this.executeIPACall(userSearch, con);
+		
+		User user = new User();
+		user.setUserID(userID);
+		Map<String,Object> results = (Map<String,Object>) resp.getResult().getResult();
+		
+		for (String attributeName : attributes) {
+			
+			if (results.get(attributeName) != null) {
+				if (results.get(attributeName) instanceof List) {
+					Attribute a = user.getAttribs().get(attributeName);
+					if (a == null) {
+						a = new Attribute(attributeName);
+						user.getAttribs().put(attributeName, a);
+					}
+					List l = (List) results.get(attributeName);
+					for (Object o : l) {
+						a.getValues().add((String) o);
+					}
+				} else {
+					Attribute a = user.getAttribs().get(attributeName);
+					if (a == null) {
+						a = new Attribute(attributeName);
+						user.getAttribs().put(attributeName, a);
+					}
+					a.getValues().add((String) results.get(attributeName));
+				}
+			}
+		}
+		
+		for (Object o : ((List) results.get("memberof_group"))) {
+			String groupName = (String) o;
+			user.getGroups().add(groupName);
+		}
+		
+		return user;
 	}
 	
 	private IPAResponse executeIPACall(IPACall ipaCall,HttpCon con) throws IPAException, ClientProtocolException, IOException {
@@ -306,6 +345,9 @@ public class FreeIPATarget implements UserStoreProvider{
 		if (logger.isDebugEnabled()) {
 			logger.info("Inbound JSON : " + b.toString());
 		}
+		
+		EntityUtils.consumeQuietly(resp.getEntity());
+		httppost.completed();
 		
 		IPAResponse ipaResponse = gson.fromJson(b.toString(), IPAResponse.class);
 		
@@ -445,7 +487,7 @@ public class FreeIPATarget implements UserStoreProvider{
 				}
 				
 				
-				this.cfgMgr.getProvisioningEngine().logAction(name,true, ActionType.Delete,  approvalID, workflow, "uid", user.getUserID());
+				this.cfgMgr.getProvisioningEngine().logAction(name,false, ActionType.Replace,  approvalID, workflow, "userPassword", "********************************");
 			} finally {
 				if (con != null) {
 					con.getBcm().shutdown();
@@ -456,11 +498,211 @@ public class FreeIPATarget implements UserStoreProvider{
 		}
 		
 	}
-
-	public void syncUser(User arg0, boolean arg1, Set<String> arg2,
-			Map<String, Object> arg3) throws ProvisioningException {
-		// TODO Auto-generated method stub
+	
+	
+	private void setAttribute(String userID, Attribute attrNew,
+			HttpCon con, int approvalID, Workflow workflow) throws Exception {
 		
+		IPACall modify = new IPACall();
+		modify.setId(0);
+		modify.setMethod("user_mod");
+		
+		ArrayList<String> userArray = new ArrayList<String>();
+		userArray.add(userID);
+		modify.getParams().add(userArray);
+		
+		HashMap<String,Object> additionalParams = new HashMap<String,Object>();
+		if (attrNew.getValues().size() > 1) {
+			additionalParams.put(attrNew.getName(), attrNew.getValues());
+		} else {
+			additionalParams.put(attrNew.getName(), attrNew.getValues().get(0));
+		}
+		
+		modify.getParams().add(additionalParams);
+		
+		IPAResponse resp = this.executeIPACall(modify, con);
+	}
+	
+	private void deleteAttribute(String userID, String attrName,
+			HttpCon con, int approvalID, Workflow workflow) throws Exception {
+		
+		IPACall modify = new IPACall();
+		modify.setId(0);
+		modify.setMethod("user_mod");
+		
+		ArrayList<String> userArray = new ArrayList<String>();
+		userArray.add(userID);
+		modify.getParams().add(userArray);
+		
+		HashMap<String,Object> additionalParams = new HashMap<String,Object>();
+		additionalParams.put(attrName, "");
+		
+		
+		modify.getParams().add(additionalParams);
+		
+		IPAResponse resp = this.executeIPACall(modify, con);
+	}
+	
+	
+	
+
+	public void syncUser(User user, boolean addOnly, Set<String> attributes,
+			Map<String, Object> request) throws ProvisioningException {
+		
+		
+		
+		User fromIPA = null;
+		HttpCon con = null;
+		try {
+		con = this.createClient();
+		
+			try {
+				fromIPA = this.findUser(user.getUserID(), attributes, request); 
+			} catch (IPAException ipaException) {
+				if (ipaException.getCode() != 4001) {
+					throw ipaException;
+				}
+			}
+			
+			
+			
+			int approvalID = 0;
+			if (request.containsKey("APPROVAL_ID")) {
+				approvalID = (Integer) request.get("APPROVAL_ID");
+			}
+			
+			Workflow workflow = (Workflow) request.get("WORKFLOW");
+			
+			if (fromIPA == null) {
+				this.createUser(user, attributes, request);
+			} else {
+				//check to see if the attributes from the incoming object match
+				for (String attrName : attributes) {
+					if (attrName.equalsIgnoreCase("uid")) {
+						continue;
+					}
+					
+					Attribute attrNew = checkAttribute(user, fromIPA, con,
+							approvalID, workflow, attrName, addOnly);
+					
+				}
+				
+				if (! addOnly) {
+					for (String attrToDel : fromIPA.getAttribs().keySet()) {
+						if (! attrToDel.equalsIgnoreCase("uid")) {
+							//These attributes were no longer on the user, delete them
+							this.deleteAttribute(user.getUserID(), attrToDel, con, approvalID, workflow);
+							this.cfgMgr.getProvisioningEngine().logAction(name,false, ActionType.Delete,  approvalID, workflow, attrToDel, "");
+						}
+					}
+				}
+				
+				//check groups
+				HashSet<String> curGroups = new HashSet<String>();
+				curGroups.addAll(fromIPA.getGroups());
+				for (String group : user.getGroups()) {
+					if (curGroups.contains(group)) {
+						curGroups.remove(group);
+					} else {
+						this.addGroup(user.getUserID(), group, con, approvalID, workflow);
+					}
+				}
+				
+				if (! addOnly) {
+					for (String group : curGroups) {
+						this.removeGroup(user.getUserID(), group, con, approvalID, workflow);
+					}
+				}
+			}
+		} catch (Exception e) {
+			throw new ProvisioningException("Could not sync user",e);
+		} finally {
+			if (con != null) {
+				con.getBcm().shutdown();
+			}
+		} 
+		
+	}
+
+	private Attribute checkAttribute(User user, User fromIPA, HttpCon con,
+			int approvalID, Workflow workflow, String attrName,boolean addOnly)
+			throws Exception {
+		Attribute attrNew = user.getAttribs().get(attrName);
+		if (attrNew != null) {
+			Attribute attrOld = fromIPA.getAttribs().get(attrName);
+			
+			if (attrOld != null) {
+				fromIPA.getAttribs().remove(attrName);
+				if (attrNew.getValues().size() != attrOld.getValues().size()) {
+					//attribute changed, update ipa
+					setAttribute(user.getUserID(),attrNew,con,approvalID,workflow);
+					
+					//determine changes
+					
+					
+					auditAttributeChanges(approvalID, workflow, attrName,
+							attrNew, attrOld,addOnly);
+					
+					
+					
+					
+				} else if (attrOld.getValues().size() == 0 || ! attrOld.getValues().get(0).equals(attrNew.getValues().get(0))) {
+					setAttribute(user.getUserID(),attrNew,con,approvalID,workflow);
+					this.cfgMgr.getProvisioningEngine().logAction(name,false, ActionType.Replace,  approvalID, workflow, attrName, attrNew.getValues().get(0));
+					
+				} else {
+					HashSet<String> oldVals = new HashSet<String>();
+					oldVals.addAll(attrOld.getValues());
+					for (String val : attrNew.getValues()) {
+						if (! oldVals.contains(val)) {
+							setAttribute(user.getUserID(),attrNew,con,approvalID,workflow);
+							break;
+						} else {
+							oldVals.remove(val);
+						}
+					}
+					
+					if (oldVals.size() > 0) {
+						setAttribute(user.getUserID(),attrNew,con,approvalID,workflow);
+					}
+					
+					//determine changes
+					auditAttributeChanges(approvalID, workflow, attrName,
+							attrNew, attrOld,addOnly);
+				}
+			
+				
+			} else {
+				//attribute doesn't exist, update IPA
+				setAttribute(user.getUserID(),attrNew,con,approvalID,workflow);
+				this.cfgMgr.getProvisioningEngine().logAction(name,false, ActionType.Add,  approvalID, workflow, attrName, attrNew.getValues().get(0));
+			}
+		}
+		return attrNew;
+	}
+
+	private void auditAttributeChanges(int approvalID, Workflow workflow,
+			String attrName, Attribute attrNew, Attribute attrOld,boolean addOnly)
+			throws ProvisioningException {
+		HashSet<String> oldVals = new HashSet<String>();
+		oldVals.addAll(attrOld.getValues());
+		
+		for (String val : attrNew.getValues()) {
+			if (! oldVals.contains(val)) {
+				this.cfgMgr.getProvisioningEngine().logAction(name,false, ActionType.Add,  approvalID, workflow, attrName, val);
+				oldVals.remove(val);
+			}
+		}
+		
+		if (! addOnly) {
+			HashSet<String> newVals = new HashSet<String>();
+			newVals.addAll(attrNew.getValues());
+			for (String val : attrOld.getValues() ) {
+				if (! newVals.contains(val)) {
+					this.cfgMgr.getProvisioningEngine().logAction(name,false, ActionType.Delete,  approvalID, workflow, attrName, val);
+				}
+			}
+		}
 	}
 
 }
