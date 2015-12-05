@@ -18,6 +18,11 @@
 			<artifactId>unison-provisioning-sdk</artifactId>
 			<version>1.0.6</version>
 		</dependency>
+		  	<dependency>
+			<groupId>com.tremolosecurity.unison</groupId>
+			<artifactId>unison-server-core</artifactId>
+			<version>1.0.6</version>
+		</dependency>
 
 		
 		<dependency>

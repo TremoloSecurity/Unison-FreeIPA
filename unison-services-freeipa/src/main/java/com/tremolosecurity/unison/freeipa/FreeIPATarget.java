@@ -16,6 +16,8 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.UnsupportedEncodingException;
+import java.math.BigInteger;
+import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -49,6 +51,7 @@ import com.tremolosecurity.provisioning.core.User;
 import com.tremolosecurity.provisioning.core.UserStoreProvider;
 import com.tremolosecurity.provisioning.core.Workflow;
 import com.tremolosecurity.provisioning.core.ProvisioningUtil.ActionType;
+import com.tremolosecurity.proxy.myvd.inserts.admin.PBKDF2;
 import com.tremolosecurity.saml.Attribute;
 import com.tremolosecurity.unison.freeipa.json.IPACall;
 import com.tremolosecurity.unison.freeipa.json.IPAResponse;
@@ -62,9 +65,13 @@ public class FreeIPATarget implements UserStoreProvider{
 
 	static Logger logger = Logger.getLogger(FreeIPATarget.class.getName());
 	
+	SecureRandom random;
+	
 	String url;
 	String userName;
 	String password;
+	boolean createShadowAccount;
+	
 	private ConfigManager cfgMgr;
 
 	private String name;
@@ -186,6 +193,13 @@ public class FreeIPATarget implements UserStoreProvider{
 				
 				for (String group : user.getGroups()) {
 					this.addGroup(user.getUserID(), group, con, approvalID, workflow);
+				}
+				
+				if (this.createShadowAccount) {
+					String password = new BigInteger(130, random).toString(32);
+					password = PBKDF2.generateHash(password);
+					user.setPassword(password);
+					this.setUserPassword(user, request);
 				}
 				
 			} finally {
@@ -367,8 +381,12 @@ public class FreeIPATarget implements UserStoreProvider{
 		this.url = this.loadOption("url", cfg, false);
 		this.userName = this.loadOption("userName", cfg, false);
 		this.password = this.loadOption("password", cfg, true);
+		this.createShadowAccount = Boolean.parseBoolean(this.loadOption("createShadowAccounts", cfg, false));
 		this.cfgMgr = cfgMgr;
 		this.name = name;
+		
+		this.random = new SecureRandom();
+		
 		
 	}
 	
