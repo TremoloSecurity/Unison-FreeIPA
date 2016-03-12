@@ -454,65 +454,68 @@ public class FreeIPATarget implements UserStoreProvider{
 
 	public void setUserPassword(User user, Map<String, Object> request)
 			throws ProvisioningException {
-		int approvalID = 0;
-		if (request.containsKey("APPROVAL_ID")) {
-			approvalID = (Integer) request.get("APPROVAL_ID");
-		}
 		
-		Workflow workflow = (Workflow) request.get("WORKFLOW");
-		
-		try {
-			HttpCon con = this.createClient();
+		if (user.getPassword() != null && ! user.getPassword().isEmpty()) {
+			int approvalID = 0;
+			if (request.containsKey("APPROVAL_ID")) {
+				approvalID = (Integer) request.get("APPROVAL_ID");
+			}
+			
+			Workflow workflow = (Workflow) request.get("WORKFLOW");
 			
 			try {
-				IPACall setPassword = new IPACall();
-				setPassword.setId(0);
-				setPassword.setMethod("passwd");
+				HttpCon con = this.createClient();
 				
-				ArrayList<String> userArray = new ArrayList<String>();
-				userArray.add(user.getUserID());
-				setPassword.getParams().add(userArray);
-				
-				HashMap<String,String> additionalParams = new HashMap<String,String>();
-				additionalParams.put("password", user.getPassword());
-				setPassword.getParams().add(additionalParams);
-				
-				IPAResponse resp = this.executeIPACall(setPassword, con);
-				con.getBcm().shutdown();
-				
-				//no we need to reset the password, this is a hack.  right way is to tell IPA the user doesn't need to reset their password
-				HttpPost httppost = new HttpPost(this.url + "/ipa/session/change_password");
-				httppost.addHeader("Referer", this.url + "/ipa/ui/");	
-				List<NameValuePair> formparams = new ArrayList<NameValuePair>();
-				formparams.add(new BasicNameValuePair("user", user.getUserID()));
-				formparams.add(new BasicNameValuePair("old_password", user.getPassword()));
-				formparams.add(new BasicNameValuePair("new_password", user.getPassword()));
-				UrlEncodedFormEntity entity = new UrlEncodedFormEntity(formparams, "UTF-8");
-
-				
-				httppost.setEntity(entity);
-				
-				
-				
-				con = this.createClient(user.getUserID(), user.getPassword());
-				CloseableHttpClient http = con.getHttp();
-				 
-				
-				CloseableHttpResponse httpResp = http.execute(httppost);
-				
-				if (logger.isDebugEnabled()) {
-					logger.debug("Response of password reset : " + httpResp.getStatusLine().getStatusCode());
-				}
-				
-				
-				this.cfgMgr.getProvisioningEngine().logAction(name,false, ActionType.Replace,  approvalID, workflow, "userPassword", "********************************");
-			} finally {
-				if (con != null) {
+				try {
+					IPACall setPassword = new IPACall();
+					setPassword.setId(0);
+					setPassword.setMethod("passwd");
+					
+					ArrayList<String> userArray = new ArrayList<String>();
+					userArray.add(user.getUserID());
+					setPassword.getParams().add(userArray);
+					
+					HashMap<String,String> additionalParams = new HashMap<String,String>();
+					additionalParams.put("password", user.getPassword());
+					setPassword.getParams().add(additionalParams);
+					
+					IPAResponse resp = this.executeIPACall(setPassword, con);
 					con.getBcm().shutdown();
+					
+					//no we need to reset the password, this is a hack.  right way is to tell IPA the user doesn't need to reset their password
+					HttpPost httppost = new HttpPost(this.url + "/ipa/session/change_password");
+					httppost.addHeader("Referer", this.url + "/ipa/ui/");	
+					List<NameValuePair> formparams = new ArrayList<NameValuePair>();
+					formparams.add(new BasicNameValuePair("user", user.getUserID()));
+					formparams.add(new BasicNameValuePair("old_password", user.getPassword()));
+					formparams.add(new BasicNameValuePair("new_password", user.getPassword()));
+					UrlEncodedFormEntity entity = new UrlEncodedFormEntity(formparams, "UTF-8");
+	
+					
+					httppost.setEntity(entity);
+					
+					
+					
+					con = this.createClient(user.getUserID(), user.getPassword());
+					CloseableHttpClient http = con.getHttp();
+					 
+					
+					CloseableHttpResponse httpResp = http.execute(httppost);
+					
+					if (logger.isDebugEnabled()) {
+						logger.debug("Response of password reset : " + httpResp.getStatusLine().getStatusCode());
+					}
+					
+					
+					this.cfgMgr.getProvisioningEngine().logAction(name,false, ActionType.Replace,  approvalID, workflow, "userPassword", "********************************");
+				} finally {
+					if (con != null) {
+						con.getBcm().shutdown();
+					}
 				}
+			} catch (Exception e) {
+				throw new ProvisioningException("Could not run search",e);
 			}
-		} catch (Exception e) {
-			throw new ProvisioningException("Could not run search",e);
 		}
 		
 	}
