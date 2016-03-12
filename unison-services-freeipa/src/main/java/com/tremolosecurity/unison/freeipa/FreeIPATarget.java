@@ -634,6 +634,15 @@ public class FreeIPATarget implements UserStoreProvider{
 						this.removeGroup(user.getUserID(), group, con, approvalID, workflow);
 					}
 				}
+				
+				
+				if (this.createShadowAccount) {
+					String password = new BigInteger(130, random).toString(32);
+					password = PBKDF2.generateHash(password);
+					user.setPassword(password);
+					this.setUserPassword(user, request);
+				}
+				
 			}
 		} catch (Exception e) {
 			throw new ProvisioningException("Could not sync user",e);
